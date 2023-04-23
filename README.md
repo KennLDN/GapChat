@@ -1,6 +1,6 @@
 # GapChat
 
-GapChat is a real-time chat application that creates a physical gap between messages relative to the time difference between them. Built using HTML, CSS, JavaScript, and Socket.IO, it allows users to set their display names, choose the color of their messages, and adjust the gap between messages based on the time difference.
+GapChat is a real-time chat application that creates a physical gap between messages relative to the time difference between them. Users can navigate to any domain after /gapchat/ to be taken to a unique, persistent chat room, allowing for easy sharing and collaboration with others. Users can change their username and bubble colour.
 
 ## Build and Run the Docker Image
 
