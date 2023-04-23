@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+   <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuidv4.min.js"></script>
+      <script src="/socket.io/socket.io.js"></script>
+      <title>Webchat App</title>
+      <style>
+         body {
+         font-family: Arial, sans-serif;
+         display: flex;
+         justify-content: center;
+         align-items: center;
+         height: 100vh;
+         margin: 0;
+         }
+         .app-container {
+         display: flex;
+         width: 40%; min-width: 400px;
+         flex-direction: column;
+         align-items: center;
+         }
+         .chat-container {
+         width: 100%;
+         max-width: 600px;
+         background-color: #f1f1f1;
+         padding: 10px;
+         border-radius: 5px;
+         overflow: auto;
+         height: 70vh;
+         --gap-scale: 1;
+         }
+         .sender-name {
+         font-size: 12px;
+         font-weight: bold;
+         margin-bottom: 2px;
+         }
+         .message-incoming {
+         background-color: #d4e6f1;
+         color: #333;
+         }
+         .message-container {
+         width: 100%;
+         display: flex;
+         flex-direction: column;
+         align-items: flex-start;
+         }
+         .message-container-outgoing {
+         align-items: flex-end;
+         }
+         .message {
+         background-color: #4caf50;
+         color: white;
+         padding: 10px;
+         border-radius: 4px;
+         margin-bottom: 10px;
+         display: inline-table;
+         max-width: 80%;
+         word-wrap: break-word;
+         }
+         .input-container {
+         display: flex;
+         justify-content: space-between;
+         align-items: center;
+         width: 100%;
+         max-width: 600px;
+         margin-top: 15px;
+         gap: 10px;
+         }
+         #message-input {
+         flex-grow: 1;
+         padding: 10px;
+         border: 1px solid #ccc;
+         border-radius: 4px;
+         }
+         #send-button {
+         padding: 10px;
+         background-color: #4caf50;
+         color: white;
+         border: none;
+         border-radius: 4px;
+         cursor: pointer;
+         }
+         .color-picker {
+         height: 35px;
+         width: 35px;
+         border: none;
+         padding: 0;
+         cursor: pointer;
+         }
+         .color-picker-wrapper {
+         height: 35px;
+         width: 35px;
+         border: 1px solid #ddd;
+         border-radius: 4px;
+         overflow: hidden;
+         }
+         .scale-container {
+         width: 100%;
+         max-width: 600px;
+         margin-top: 15px;
+         }
+         .scale-container input[type=range] {
+         width: 100%;
+         }
+         .username-container {
+         display: flex;
+         justify-content: space-between;
+         align-items: center;
+         width: 100%;
+         max-width: 600px;
+         margin-bottom: 10px;
+         }
+         #username-input {
+         flex-grow: 1;
+         padding: 10px;
+         border: 1px solid #ccc;
+         border-radius: 4px;
+         }
+         #username-apply {
+         padding: 10px;
+         background-color: #4caf50;
+         color: white;
+         border: none;
+         border-radius: 4px;
+         cursor: pointer;
+         margin-left: 10px;
+         }
+      </style>
+   </head>
+   <body>
+      <div class="app-container">
+         <div class="username-container">
+            <input type="text" id="username-input" placeholder="Enter your name..." />
+            <button id="username-apply">Apply</button>
+         </div>
+         <div class="chat-container" id="chat-container"></div>
+         <div class="input-container">
+            <input type="text" id="message-input" placeholder="Type your message here..." />
+            <div class="color-picker-wrapper">
+               <input type="color" id="message-color" value="#4caf50" class="color-picker" />
+            </div>
+            <button id="send-button">Send</button>
+         </div>
+         <div class="scale-container" id="scale-container" style="display: none;">
+            <input type="range" id="scale-slider" min="1" max="100" value="50" step="1" />
+         </div>
+      </div>
+      <script>
+         document.getElementById('send-button').addEventListener('click', sendMessage);
+         document.getElementById('scale-slider').addEventListener('input', updateMessageGaps);
+         document.getElementById('username-apply').addEventListener('click', setUsername);
+         document.getElementById('message-color').addEventListener('input', setChatColor);
+         
+         document.getElementById('message-input').addEventListener('keydown', function (e) {
+           if (e.key === 'Enter') {
+         	e.preventDefault();
+         	sendMessage();
+           }
+         });
+         
+         let user = {
+           id: getCookie("userId") || uuidv4(),
+           name: getCookie("username") || 'You',
+         };
+         
+         if (!getCookie("userId")) {
+           setCookie("userId", user.id, 30);
+         }
+         
+         function setUsername() {
+           const usernameInput = document.getElementById('username-input');
+           if (usernameInput.value.trim() !== '') {
+         	user.name = usernameInput.value;
+         	setCookie("username", user.name, 30);
+           }
+         }
+         
+         function setChatColor() {
+           const colorInput = document.getElementById('message-color');
+           setCookie("chatColor", colorInput.value, 30);
+         }
+         
+          function setupSocketIO() {
+            const roomId = window.location.pathname.slice(-4);
+            const socket = io(window.location.origin, { query: { roomId: roomId } });
+         
+            socket.on('connect', () => {
+              console.log('Connected to server');
+            });
+         
+            socket.on('messages', (messages) => {
+              // Update the messages in the UI here
+              chatContainer.innerHTML = '';
+           currentMessages = messages;
+              renderMessages(messages);
+            });
+         
+            return socket;
+          }
+         
+         function sendMessage() {
+          console.log('sendMessage function called');
+          const input = document.getElementById('message-input');
+          const colorInput = document.getElementById('message-color');
+         
+          const newMessage = {
+            text: input.value,
+            timestamp: new Date().toISOString(),
+            sender: user.name,
+            senderId: user.id,
+            color: colorInput.value,
+            textColor: isColorDark(colorInput.value) ? '#FFF' : '#333',
+            username: user.name,
+          };
+         
+          input.value = '';
+         
+          // Send the message to the server
+          socket.emit('message', newMessage);
+         }
+         
+         function updateMessageGaps() {
+           const scaleValue = parseFloat(document.getElementById('scale-slider').value) / 50;
+           chatContainer.style.setProperty('--gap-scale', scaleValue);
+           chatContainer.innerHTML = '';
+           renderMessages(currentMessages);
+         }
+         
+         if (user.name !== 'You') {
+           document.getElementById('username-input').value = user.name;
+         }
+         
+         const chatColorCookie = getCookie("chatColor");
+         if (chatColorCookie) {
+           document.getElementById('message-color').value = chatColorCookie;
+         } else {
+           setCookie("chatColor", document.getElementById('message-color').value, 30);
+         }
+         
+         const chatContainer = document.getElementById('chat-container');
+         
+         function calculateMessageGap(prevTimestamp, currentTimestamp) {
+           const prevUnixTimestamp = new Date(prevTimestamp).getTime();
+           const currentUnixTimestamp = new Date(currentTimestamp).getTime();
+         
+           const secondsDifference = (currentUnixTimestamp - prevUnixTimestamp) / 1000;
+           
+           const gaps = Math.floor(secondsDifference / 5);
+           return gaps * 10; // pixels
+         }
+         
+         function isColorDark(hexColor) {
+         	const rgb = parseInt(hexColor.slice(1), 16);
+         	const r = (rgb >> 16) & 0xff;
+         	const g = (rgb >> 8) & 0xff;
+         	const b = (rgb >> 0) & 0xff;
+         	const hsp = Math.sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b);
+         	return hsp < 200;
+         }
+         
+         function setCookie(name, value, days) {
+           const d = new Date();
+           d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+           const expires = "expires=" + d.toUTCString();
+           document.cookie = name + "=" + value + ";" + expires + ";path=/";
+         }
+         
+         function getCookie(name) {
+           const cookieName = name + "=";
+           const decodedCookie = decodeURIComponent(document.cookie);
+           const cookies = decodedCookie.split(';');
+           for (let i = 0; i < cookies.length; i++) {
+         	let c = cookies[i];
+         	while (c.charAt(0) === ' ') {
+         	  c = c.substring(1);
+         	}
+         	if (c.indexOf(cookieName) === 0) {
+         	  return c.substring(cookieName.length, c.length);
+         	}
+           }
+           return "";
+         }
+         
+         function renderMessages(messages) {
+          if (messages.length === 0) {
+            return;
+          }
+         
+          let prevTimestamp = messages[0].timestamp;
+         
+          messages.forEach((message, index) => {
+            const gap = index !== 0 ? calculateMessageGap(prevTimestamp, message.timestamp) : 0;
+         
+            const messageContainer = document.createElement('div');
+            messageContainer.className = 'message-container';
+            messageContainer.style.marginTop = `${gap}px`;
+         
+            const isUserMessage = message.senderId === user.id; // Check if the message's senderId matches the current user's id
+            if (isUserMessage) {
+              messageContainer.classList.add('message-container-outgoing');
+            }
+            const senderNameEl = document.createElement('div');
+            senderNameEl.className = 'sender-name';
+         
+            const now = new Date();
+            const messageDate = new Date(message.timestamp);
+            const sameDay = now.getDate() === messageDate.getDate() && now.getMonth() === messageDate.getMonth() && now.getFullYear() === messageDate.getFullYear();
+         
+            const formattedTimestamp = new Intl.DateTimeFormat(navigator.language, {
+              ...(sameDay ? {} : { year: "numeric", month: "short", day: "2-digit" }),
+              hour: "2-digit",
+              minute: "2-digit",
+            }).format(messageDate);
+         
+            const timeEl = document.createElement('span');
+            timeEl.style.color = 'gray';
+            timeEl.innerText = formattedTimestamp;
+         
+            if (isUserMessage) {
+              senderNameEl.appendChild(timeEl);
+              senderNameEl.innerHTML += ' ' + message.sender;
+            } else {
+              senderNameEl.innerText = message.sender + ' ';
+              senderNameEl.appendChild(timeEl);
+            }
+         
+            messageContainer.appendChild(senderNameEl);
+         
+            const messageEl = document.createElement('div');
+            messageEl.className = 'message';
+            messageEl.style.backgroundColor = message.color || '#4caf50';
+            messageEl.style.color = message.textColor || 'white';
+            messageEl.innerText = message.text;
+         
+            if (!isUserMessage) {
+              messageEl.classList.add('message-incoming');
+            }
+         
+            messageEl.innerText = message.text;
+            messageContainer.appendChild(messageEl);
+            chatContainer.appendChild(messageContainer);
+            prevTimestamp = message.timestamp;
+          });
+          chatContainer.scrollTop = chatContainer.scrollHeight;
+         }
+         
+         const socket = setupSocketIO();
+      </script>
+   </body>
+</html>
